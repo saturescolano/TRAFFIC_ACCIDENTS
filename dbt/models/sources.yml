@@ -2,8 +2,21 @@ version: 2
 
 sources:
   - name: bronze
+    description: >
+      Capa bronze: dato crudo tal como llega del CSV, sin transformar. Todas
+      las columnas son `VARCHAR`. La carga la hace `scripts/load_bronze.py`
+      (TRUNCATE + COPY INTO, idempotente).
     database: "{{ env_var('SNOWFLAKE_DATABASE') }}"
     schema: "{{ env_var('APP_ENV', 'DEV') | upper }}_BRONZE"
     tables:
       - name: raw_accidents
         identifier: RAW_ACCIDENTS
+        description: >
+          Dataset US Accidents (marzo 2023). DEV: muestra determinista del 10 %
+          (hash del `ID`); PRO: archivo completo (~7,7 M de filas). Los nombres
+          de columna están normalizados (`Distance(mi)` -> `DISTANCE_MI`,
+          `Humidity(%)` -> `HUMIDITY_PCT`).
+        columns:
+          - name: id
+            description: 'Identificador del accidente (`ID` del CSV). Debe ser único y no nulo.'
+            data_tests: [unique, not_null]

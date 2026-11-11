@@ -1,0 +1,18 @@
+version: 2
+
+data_tests:
+  - name: assert_end_after_start
+    description: >
+      Regla de negocio (severidad `error`): ningún accidente puede terminar
+      antes de empezar (`end_time_local < start_time_local`). Devuelve los
+      `accident_id` que la incumplen.
+  - name: assert_coords_in_us
+    description: >
+      Aviso (severidad `warn`): coordenadas de inicio fuera del rango
+      aproximado de EE. UU., incluidas Alaska y Hawái (latitud 17-72, longitud
+      -180 a -64). No bloquea el build.
+  - name: assert_possible_duplicates
+    description: >
+      Aviso (severidad `warn`, `limit` 100): mismo instante, coordenadas y
+      descripción con distinto `accident_id`. Posibles duplicados (~300 mil en
+      el dataset completo) que no se eliminan porque el ID es distinto.

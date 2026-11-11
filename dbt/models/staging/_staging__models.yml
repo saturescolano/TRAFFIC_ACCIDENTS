@@ -1,0 +1,167 @@
+version: 2
+
+models:
+  - name: stg_accidents
+    description: >
+      Limpieza y tipado de `bronze.raw_accidents` (todo `VARCHAR`) sin cambiar su
+      forma: **una fila por accidente**. Usa `try_to_*`, así que un valor
+      inválido se convierte en `NULL` en vez de romper la carga. Añade las horas
+      en UTC (el CSV solo trae hora local). No aplica reglas de negocio ni
+      deduplica. Es el primer punto de control de calidad: valida unicidad,
+      campos obligatorios, valores admitidos y rangos físicos.
+    columns:
+      - name: accident_id
+        description: '{{ doc("accident_id") }}'
+        data_tests:
+          - unique
+          - not_null
+      - name: source_name
+        description: '{{ doc("source_name") }}'
+      - name: severity
+        description: '{{ doc("severity") }}'
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments: {values: [1, 2, 3, 4], quote: false}
+      - name: start_time_local
+        description: '{{ doc("start_time_local") }}'
+        data_tests:
+          - not_null
+      - name: end_time_local
+        description: '{{ doc("end_time_local") }}'
+      - name: start_time_utc
+        description: '{{ doc("start_time_utc") }}'
+      - name: end_time_utc
+        description: '{{ doc("end_time_utc") }}'
+      - name: timezone
+        description: '{{ doc("timezone") }}'
+        data_tests:
+          - accepted_values:
+              arguments: {values: ['US/Eastern', 'US/Central', 'US/Mountain', 'US/Pacific']}
+              config: {where: "timezone is not null"}
+      - name: start_lat
+        description: '{{ doc("start_lat") }}'
+        data_tests:
+          - not_null
+      - name: start_lng
+        description: '{{ doc("start_lng") }}'
+        data_tests:
+          - not_null
+      - name: end_lat
+        description: '{{ doc("end_lat") }}'
+      - name: end_lng
+        description: '{{ doc("end_lng") }}'
+      - name: distance_mi
+        description: '{{ doc("distance_mi") }}'
+      - name: description
+        description: '{{ doc("description") }}'
+      - name: street
+        description: '{{ doc("street") }}'
+      - name: city
+        description: '{{ doc("city") }}'
+      - name: county
+        description: '{{ doc("county") }}'
+      - name: state
+        description: '{{ doc("state") }}'
+      - name: zipcode
+        description: '{{ doc("zipcode") }}'
+      - name: airport_code
+        description: '{{ doc("airport_code") }}'
+      - name: weather_timestamp
+        description: '{{ doc("weather_timestamp") }}'
+      - name: temperature_f
+        description: '{{ doc("temperature_f") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: -100, max_value: 140}
+              config: {severity: warn}
+      - name: wind_chill_f
+        description: '{{ doc("wind_chill_f") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: -100, max_value: 140}
+              config: {severity: warn}
+      - name: humidity_pct
+        description: '{{ doc("humidity_pct") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, max_value: 100}
+              config: {severity: warn}
+      - name: pressure_in
+        description: '{{ doc("pressure_in") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, max_value: 40}
+              config: {severity: warn}
+      - name: visibility_mi
+        description: '{{ doc("visibility_mi") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0}
+              config: {severity: warn}
+      - name: wind_speed_mph
+        description: '{{ doc("wind_speed_mph") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0}
+              config: {severity: warn}
+      - name: precipitation_in
+        description: '{{ doc("precipitation_in") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0}
+              config: {severity: warn}
+      - name: wind_direction
+        description: '{{ doc("wind_direction") }}'
+      - name: weather_condition
+        description: '{{ doc("weather_condition") }}'
+      - name: amenity
+        description: '{{ doc("flag_amenity") }}'
+      - name: bump
+        description: '{{ doc("flag_bump") }}'
+      - name: crossing
+        description: '{{ doc("flag_crossing") }}'
+      - name: give_way
+        description: '{{ doc("flag_give_way") }}'
+      - name: junction
+        description: '{{ doc("flag_junction") }}'
+      - name: no_exit
+        description: '{{ doc("flag_no_exit") }}'
+      - name: railway
+        description: '{{ doc("flag_railway") }}'
+      - name: roundabout
+        description: '{{ doc("flag_roundabout") }}'
+      - name: station
+        description: '{{ doc("flag_station") }}'
+      - name: stop
+        description: '{{ doc("flag_stop") }}'
+      - name: traffic_calming
+        description: '{{ doc("flag_traffic_calming") }}'
+      - name: traffic_signal
+        description: '{{ doc("flag_traffic_signal") }}'
+      - name: turning_loop
+        description: '{{ doc("flag_turning_loop") }}'
+      - name: sunrise_sunset
+        description: '{{ doc("sunrise_sunset") }}'
+        data_tests:
+          - accepted_values:
+              arguments: {values: ['Day', 'Night']}
+              config: {where: "sunrise_sunset is not null"}
+      - name: civil_twilight
+        description: '{{ doc("civil_twilight") }}'
+        data_tests:
+          - accepted_values:
+              arguments: {values: ['Day', 'Night']}
+              config: {where: "civil_twilight is not null"}
+      - name: nautical_twilight
+        description: '{{ doc("nautical_twilight") }}'
+        data_tests:
+          - accepted_values:
+              arguments: {values: ['Day', 'Night']}
+              config: {where: "nautical_twilight is not null"}
+      - name: astronomical_twilight
+        description: '{{ doc("astronomical_twilight") }}'
+        data_tests:
+          - accepted_values:
+              arguments: {values: ['Day', 'Night']}
+              config: {where: "astronomical_twilight is not null"}

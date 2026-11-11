@@ -2,32 +2,191 @@ version: 2
 
 models:
   - name: fact_accidents
-    description: "Grano: un accidente."
+    description: >
+      Tabla de hechos del modelo en estrella. **Grano: un accidente.** Las
+      medidas meteorológicas y los indicadores de vía se mantienen en el hecho
+      (no en dimensión). Se une a `dim_date` (dos roles: inicio y fin),
+      `dim_source` y `dim_location`.
+    data_tests:
+      - dbt_utils.equal_rowcount:
+          arguments: {compare_model: ref('accident')}
     columns:
       - name: accident_key
+        description: 'Clave sustituta (hash MD5) de `accident_id`. PK del hecho.'
         data_tests: [unique, not_null]
       - name: start_date_key
+        description: 'FK a `dim_date` (rol «fecha de inicio»), formato `YYYYMMDD`.'
         data_tests:
-          - relationships: {to: ref('dim_date'), field: date_key}
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
       - name: end_date_key
+        description: 'FK a `dim_date` (rol «fecha de fin»), formato `YYYYMMDD`.'
         data_tests:
-          - relationships: {to: ref('dim_date'), field: date_key}
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
       - name: source_key
+        description: 'FK a `dim_source`.'
         data_tests:
-          - relationships: {to: ref('dim_source'), field: source_key}
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_source'), field: source_key}
       - name: location_key
+        description: >
+          FK a `dim_location`. Hash de estado + condado + ciudad + zip (sin
+          calle: la dimensión es más gruesa que `location`).
         data_tests:
-          - relationships: {to: ref('dim_location'), field: location_key}
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_location'), field: location_key}
+      - name: accident_id
+        description: 'Identificador natural del accidente (dimensión degenerada). Ver `accident.accident_id`.'
+      - name: severity
+        description: '{{ doc("severity") }}'
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments: {values: [1, 2, 3, 4], quote: false}
+      - name: distance_mi
+        description: '{{ doc("distance_mi") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0}
+              config: {severity: warn}
+      - name: duration_minutes
+        description: >
+          Duración del impacto en **minutos** = `end_time_utc` − `start_time_utc`.
+          NULL si falta alguna hora UTC o si el fin es anterior al inicio.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0}
+      - name: start_time_utc
+        description: '{{ doc("start_time_utc") }}'
+      - name: temperature_f
+        description: '{{ doc("temperature_f") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: -100, max_value: 140}
+              config: {severity: warn}
+      - name: wind_chill_f
+        description: '{{ doc("wind_chill_f") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: -100, max_value: 140}
+              config: {severity: warn}
+      - name: humidity_pct
+        description: '{{ doc("humidity_pct") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, max_value: 100}
+              config: {severity: warn}
+      - name: pressure_in
+        description: '{{ doc("pressure_in") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, max_value: 40}
+              config: {severity: warn}
+      - name: visibility_mi
+        description: '{{ doc("visibility_mi") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0}
+              config: {severity: warn}
+      - name: wind_speed_mph
+        description: '{{ doc("wind_speed_mph") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0}
+              config: {severity: warn}
+      - name: precipitation_in
+        description: '{{ doc("precipitation_in") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0}
+              config: {severity: warn}
+      - name: weather_condition
+        description: '{{ doc("weather_condition") }}'
+      - name: amenity
+        description: '{{ doc("flag_amenity") }}'
+      - name: bump
+        description: '{{ doc("flag_bump") }}'
+      - name: crossing
+        description: '{{ doc("flag_crossing") }}'
+      - name: give_way
+        description: '{{ doc("flag_give_way") }}'
+      - name: junction
+        description: '{{ doc("flag_junction") }}'
+      - name: no_exit
+        description: '{{ doc("flag_no_exit") }}'
+      - name: railway
+        description: '{{ doc("flag_railway") }}'
+      - name: roundabout
+        description: '{{ doc("flag_roundabout") }}'
+      - name: station
+        description: '{{ doc("flag_station") }}'
+      - name: stop
+        description: '{{ doc("flag_stop") }}'
+      - name: traffic_calming
+        description: '{{ doc("flag_traffic_calming") }}'
+      - name: traffic_signal
+        description: '{{ doc("flag_traffic_signal") }}'
+      - name: turning_loop
+        description: '{{ doc("flag_turning_loop") }}'
 
   - name: dim_date
+    description: >
+      Dimensión de fecha. **Grano: un día natural** que aparece como inicio o
+      fin de algún accidente (no es un calendario continuo).
     columns:
       - name: date_key
+        description: 'Clave de la fecha como entero `YYYYMMDD` (p. ej. 20210315).'
         data_tests: [unique, not_null]
+      - name: full_date
+        description: 'Fecha completa (`DATE`).'
+      - name: day
+        description: 'Día del mes (1-31).'
+        data_tests:
+          - dbt_utils.accepted_range: {arguments: {min_value: 1, max_value: 31}}
+      - name: month
+        description: 'Mes (1-12).'
+        data_tests:
+          - dbt_utils.accepted_range: {arguments: {min_value: 1, max_value: 12}}
+      - name: quarter
+        description: 'Trimestre (1-4).'
+        data_tests:
+          - dbt_utils.accepted_range: {arguments: {min_value: 1, max_value: 4}}
+      - name: year
+        description: 'Año.'
+      - name: weekday
+        description: 'Día de la semana ISO: 1 = lunes … 7 = domingo.'
+        data_tests:
+          - dbt_utils.accepted_range: {arguments: {min_value: 1, max_value: 7}}
+      - name: weekend_flag
+        description: '`TRUE` si es sábado o domingo (`weekday` >= 6).'
+        data_tests: [not_null]
+
   - name: dim_source
+    description: 'Dimensión de fuente de datos. **Grano: una fuente.** Copia de `source` con la clave renombrada.'
     columns:
       - name: source_key
+        description: 'Clave sustituta (hash MD5) de `source_name`. Igual que `source.source_id`.'
         data_tests: [unique, not_null]
+      - name: source_name
+        description: '{{ doc("source_name") }}'
+
   - name: dim_location
+    description: >
+      Dimensión de localización. **Grano más grueso que `location`**: estado +
+      condado + ciudad + zip (sin calle).
     columns:
       - name: location_key
+        description: 'Clave sustituta (hash MD5) de estado + condado + ciudad + zip.'
         data_tests: [unique, not_null]
+      - name: state
+        description: '{{ doc("state") }}'
+      - name: county
+        description: '{{ doc("county") }}'
+      - name: city
+        description: '{{ doc("city") }}'
+      - name: zipcode
+        description: '{{ doc("zipcode") }}'

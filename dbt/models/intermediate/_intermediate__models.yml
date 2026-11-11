@@ -2,41 +2,219 @@ version: 2
 
 models:
   - name: accident
-    description: "Tabla central 3FN. Grano: un accidente."
+    description: >
+      Tabla central en 3FN. **Grano: un accidente.** Contiene el hecho
+      «accidente» con claves foráneas a `source`, `location` y
+      `weather_observation`. `timezone` y los 13 indicadores de vía se dejan
+      aquí (v1): `timezone` tiene solo 4 valores y modelar los indicadores como
+      N:N generaría ~100 M de filas.
     columns:
       - name: accident_id
+        description: '{{ doc("accident_id") }}'
         data_tests: [unique, not_null]
       - name: source_id
+        description: 'FK a `source`. Clave sustituta (hash MD5) de `source_name`.'
         data_tests:
           - not_null
-          - relationships: {to: ref('source'), field: source_id}
+          - relationships:
+              arguments: {to: ref('source'), field: source_id}
       - name: location_id
+        description: >
+          FK a `location`. Hash de calle + ciudad + condado + estado + zip
+          (macro `location_key`).
         data_tests:
           - not_null
-          - relationships: {to: ref('location'), field: location_id}
+          - relationships:
+              arguments: {to: ref('location'), field: location_id}
       - name: weather_id
-        description: "NULL si el accidente no tiene ningún dato meteorológico."
+        description: >
+          FK a `weather_observation`. Hash de los 11 campos meteorológicos
+          (macro `weather_key`). NULL si el accidente no tiene ningún dato
+          meteorológico.
         data_tests:
           - relationships:
-              to: ref('weather_observation')
-              field: weather_id
+              arguments:
+                to: ref('weather_observation')
+                field: weather_id
               config: {where: "weather_id is not null"}
-      - name: severity
+      - name: start_time_local
+        description: '{{ doc("start_time_local") }}'
         data_tests:
-          - accepted_values: {values: [1, 2, 3, 4], quote: false}
+          - not_null
+      - name: end_time_local
+        description: '{{ doc("end_time_local") }}'
+      - name: start_time_utc
+        description: '{{ doc("start_time_utc") }}'
+      - name: end_time_utc
+        description: '{{ doc("end_time_utc") }}'
+      - name: timezone
+        description: '{{ doc("timezone") }}'
+        data_tests:
+          - accepted_values:
+              arguments: {values: ['US/Eastern', 'US/Central', 'US/Mountain', 'US/Pacific']}
+              config: {where: "timezone is not null"}
+      - name: severity
+        description: '{{ doc("severity") }}'
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments: {values: [1, 2, 3, 4], quote: false}
+      - name: description
+        description: '{{ doc("description") }}'
+      - name: distance_mi
+        description: '{{ doc("distance_mi") }}'
+      - name: start_lat
+        description: '{{ doc("start_lat") }}'
+        data_tests:
+          - not_null
+      - name: start_lng
+        description: '{{ doc("start_lng") }}'
+        data_tests:
+          - not_null
+      - name: end_lat
+        description: '{{ doc("end_lat") }}'
+      - name: end_lng
+        description: '{{ doc("end_lng") }}'
+      - name: amenity
+        description: '{{ doc("flag_amenity") }}'
+      - name: bump
+        description: '{{ doc("flag_bump") }}'
+      - name: crossing
+        description: '{{ doc("flag_crossing") }}'
+      - name: give_way
+        description: '{{ doc("flag_give_way") }}'
+      - name: junction
+        description: '{{ doc("flag_junction") }}'
+      - name: no_exit
+        description: '{{ doc("flag_no_exit") }}'
+      - name: railway
+        description: '{{ doc("flag_railway") }}'
+      - name: roundabout
+        description: '{{ doc("flag_roundabout") }}'
+      - name: station
+        description: '{{ doc("flag_station") }}'
+      - name: stop
+        description: '{{ doc("flag_stop") }}'
+      - name: traffic_calming
+        description: '{{ doc("flag_traffic_calming") }}'
+      - name: traffic_signal
+        description: '{{ doc("flag_traffic_signal") }}'
+      - name: turning_loop
+        description: '{{ doc("flag_turning_loop") }}'
+      - name: sunrise_sunset
+        description: '{{ doc("sunrise_sunset") }}'
+        data_tests:
+          - accepted_values:
+              arguments: {values: ['Day', 'Night']}
+              config: {where: "sunrise_sunset is not null"}
+      - name: civil_twilight
+        description: '{{ doc("civil_twilight") }}'
+        data_tests:
+          - accepted_values:
+              arguments: {values: ['Day', 'Night']}
+              config: {where: "civil_twilight is not null"}
+      - name: nautical_twilight
+        description: '{{ doc("nautical_twilight") }}'
+        data_tests:
+          - accepted_values:
+              arguments: {values: ['Day', 'Night']}
+              config: {where: "nautical_twilight is not null"}
+      - name: astronomical_twilight
+        description: '{{ doc("astronomical_twilight") }}'
+        data_tests:
+          - accepted_values:
+              arguments: {values: ['Day', 'Night']}
+              config: {where: "astronomical_twilight is not null"}
 
   - name: source
+    description: >
+      Dimensión normalizada de fuentes. **Grano: una fuente** (valor distinto
+      de `source_name`, sin nulos).
     columns:
       - name: source_id
+        description: 'Clave sustituta (hash MD5) de `source_name`.'
         data_tests: [unique, not_null]
+      - name: source_name
+        description: '{{ doc("source_name") }}'
 
   - name: location
-    description: "Dirección (calle+ciudad+condado+estado+zip), no un punto geográfico."
+    description: >
+      Entidad «dirección»: calle + ciudad + condado + estado + zip. **Grano: una
+      dirección distinta.** No es un punto geográfico: dos sitios distintos con
+      la misma dirección se funden en una sola fila. Las filas con calle o zip
+      nulos se agrupan por los campos presentes.
     columns:
       - name: location_id
+        description: 'Clave sustituta (hash MD5) de calle + ciudad + condado + estado + zip (macro `location_key`).'
         data_tests: [unique, not_null]
+      - name: street
+        description: '{{ doc("street") }}'
+      - name: city
+        description: '{{ doc("city") }}'
+      - name: county
+        description: '{{ doc("county") }}'
+      - name: state
+        description: '{{ doc("state") }}'
+      - name: zipcode
+        description: '{{ doc("zipcode") }}'
 
   - name: weather_observation
+    description: >
+      Observación meteorológica normalizada. **Grano: una combinación distinta
+      de los 11 campos meteorológicos.** Si un accidente no tiene ningún dato
+      del tiempo no hay observación (su `weather_id` es NULL), en lugar de una
+      fila «fantasma» compartida por ~22 mil accidentes.
     columns:
       - name: weather_id
+        description: 'Clave sustituta (hash MD5) de los 11 campos meteorológicos (macro `weather_key`).'
         data_tests: [unique, not_null]
+      - name: weather_timestamp
+        description: '{{ doc("weather_timestamp") }}'
+      - name: airport_code
+        description: '{{ doc("airport_code") }}'
+      - name: temperature_f
+        description: '{{ doc("temperature_f") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: -100, max_value: 140}
+              config: {severity: warn}
+      - name: wind_chill_f
+        description: '{{ doc("wind_chill_f") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: -100, max_value: 140}
+              config: {severity: warn}
+      - name: humidity_pct
+        description: '{{ doc("humidity_pct") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, max_value: 100}
+              config: {severity: warn}
+      - name: pressure_in
+        description: '{{ doc("pressure_in") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, max_value: 40}
+              config: {severity: warn}
+      - name: visibility_mi
+        description: '{{ doc("visibility_mi") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0}
+              config: {severity: warn}
+      - name: wind_speed_mph
+        description: '{{ doc("wind_speed_mph") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0}
+              config: {severity: warn}
+      - name: precipitation_in
+        description: '{{ doc("precipitation_in") }}'
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0}
+              config: {severity: warn}
+      - name: wind_direction
+        description: '{{ doc("wind_direction") }}'
+      - name: weather_condition
+        description: '{{ doc("weather_condition") }}'
