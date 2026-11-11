@@ -1,0 +1,42 @@
+version: 2
+
+models:
+  - name: accident
+    description: "Tabla central 3FN. Grano: un accidente."
+    columns:
+      - name: accident_id
+        data_tests: [unique, not_null]
+      - name: source_id
+        data_tests:
+          - not_null
+          - relationships: {to: ref('source'), field: source_id}
+      - name: location_id
+        data_tests:
+          - not_null
+          - relationships: {to: ref('location'), field: location_id}
+      - name: weather_id
+        description: "NULL si el accidente no tiene ningún dato meteorológico."
+        data_tests:
+          - relationships:
+              to: ref('weather_observation')
+              field: weather_id
+              config: {where: "weather_id is not null"}
+      - name: severity
+        data_tests:
+          - accepted_values: {values: [1, 2, 3, 4], quote: false}
+
+  - name: source
+    columns:
+      - name: source_id
+        data_tests: [unique, not_null]
+
+  - name: location
+    description: "Dirección (calle+ciudad+condado+estado+zip), no un punto geográfico."
+    columns:
+      - name: location_id
+        data_tests: [unique, not_null]
+
+  - name: weather_observation
+    columns:
+      - name: weather_id
+        data_tests: [unique, not_null]

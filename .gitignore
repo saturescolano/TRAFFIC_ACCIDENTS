@@ -1,0 +1,17 @@
+# Secretos
+.env
+
+# Datos (demasiado grandes para GitHub)
+*.csv
+data/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# dbt
+target/
+dbt_packages/
+logs/
+.user.yml

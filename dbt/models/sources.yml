@@ -1,0 +1,9 @@
+version: 2
+
+sources:
+  - name: bronze
+    database: "{{ env_var('SNOWFLAKE_DATABASE') }}"
+    schema: "{{ env_var('APP_ENV', 'DEV') | upper }}_BRONZE"
+    tables:
+      - name: raw_accidents
+        identifier: RAW_ACCIDENTS

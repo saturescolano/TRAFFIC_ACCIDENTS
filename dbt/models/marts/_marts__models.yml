@@ -1,0 +1,33 @@
+version: 2
+
+models:
+  - name: fact_accidents
+    description: "Grano: un accidente."
+    columns:
+      - name: accident_key
+        data_tests: [unique, not_null]
+      - name: start_date_key
+        data_tests:
+          - relationships: {to: ref('dim_date'), field: date_key}
+      - name: end_date_key
+        data_tests:
+          - relationships: {to: ref('dim_date'), field: date_key}
+      - name: source_key
+        data_tests:
+          - relationships: {to: ref('dim_source'), field: source_key}
+      - name: location_key
+        data_tests:
+          - relationships: {to: ref('dim_location'), field: location_key}
+
+  - name: dim_date
+    columns:
+      - name: date_key
+        data_tests: [unique, not_null]
+  - name: dim_source
+    columns:
+      - name: source_key
+        data_tests: [unique, not_null]
+  - name: dim_location
+    columns:
+      - name: location_key
+        data_tests: [unique, not_null]

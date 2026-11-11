@@ -1,0 +1,23 @@
+name: traffic_accidents
+version: "1.0.0"
+config-version: 2
+profile: traffic_accidents
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+
+# Esquema final = {APP_ENV}_{capa}  (ver macros/generate_schema_name.sql)
+# Materialización por capa, cambiable con variables de entorno sin tocar código:
+#   DBT_MAT_STAGING, DBT_MAT_INTERMEDIATE, DBT_MAT_MARTS  (table | view)
+models:
+  traffic_accidents:
+    staging:
+      +schema: silver
+      +materialized: "{{ env_var('DBT_MAT_STAGING', 'table') }}"
+    intermediate:
+      +schema: silver
+      +materialized: "{{ env_var('DBT_MAT_INTERMEDIATE', 'table') }}"
+    marts:
+      +schema: gold
+      +materialized: "{{ env_var('DBT_MAT_MARTS', 'table') }}"
