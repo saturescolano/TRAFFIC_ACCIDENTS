@@ -3,7 +3,8 @@ version: 2
 models:
   - name: silver_accidents
     description: >
-      Silver plano. **Una fila por accidente.** Toma `bronze_accidents`,
+      Silver plano, **incremental** (`merge` por `accident_id`: solo añade accidentes
+      nuevos). **Una fila por accidente.** Toma `bronze_accidents`,
       **deduplica** con la macro `deduplicate` (por `id`; si un accidente está
       en los dos orígenes sobrevive `origin_1`), **tipa** con `try_to_*` (un
       valor inválido pasa a `NULL` en vez de romper la carga) y calcula las

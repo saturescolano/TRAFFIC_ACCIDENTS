@@ -19,6 +19,7 @@ Proyecto de mentorización · Incorporación a Civica Software
 - Un **pipeline de datos de extremo a extremo**: del CSV crudo a un modelo analítico listo para consultar.
 - Dataset: **US Accidents (marzo 2023)**, ~7,7 M de accidentes en EE. UU. (2016-2023), 46 columnas.
 - Stack: **Snowflake** (almacén) + **dbt** (transformación) + **Python** (carga).
+- **Seis bases de datos** (`DEV_` / `PRO_` × bronze / silver / gold) y **dos orígenes** de datos con duplicados que se limpian en silver.
 - Todo reproducible desde el repositorio: `git clone` → `.env` → `dbt build`.
 
 ---
@@ -35,9 +36,11 @@ Proyecto de mentorización · Incorporación a Civica Software
 
 | Capa | Para qué sirve |
 |---|---|
-| **Bronze** | Guarda el dato tal cual llega (dos orígenes unidos con `UNION ALL`, duplicados incluidos); se puede reprocesar sin recargar |
-| **Silver** | Deduplica (macro `deduplicate`), tipa y normaliza |
-| **Gold** | Modelo dimensional para análisis |
+| **Bronze** (`*_1_BRONZE_DB`) | Guarda el dato tal cual llega (dos orígenes unidos con `UNION ALL`, duplicados incluidos); se puede reprocesar sin recargar |
+| **Silver** (`*_2_SILVER_DB`) | Deduplica (macro `deduplicate`), tipa y normaliza a 3FN |
+| **Gold** (`*_3_GOLD_DB`) | Modelo dimensional para análisis |
+
+Carpetas dbt: `1_bronze/`, `2_silver/`, `3_gold/`. Esquema siempre `TRAFFIC_ACCIDENTS`.
 
 ---
 
@@ -45,11 +48,12 @@ Proyecto de mentorización · Incorporación a Civica Software
 
 | | DEV | PRO |
 |---|---|---|
-| Datos | Muestra determinista del **10 %** (773 mil filas) | Dataset **completo** (7,7 M) |
-| Bases de datos (esquema `TRAFFIC_ACCIDENTS`) | `DEV_BRONZE_DB / SILVER_DB / GOLD_DB` | `PRO_BRONZE_DB / SILVER_DB / GOLD_DB` |
-| Estado | Construido y testeado | Bronze cargado; **sin materializar aún** |
+| Origen 1 | Muestra del **10 %** (773 mil filas) | Dataset **completo** (7,7 M) |
+| Origen 2 | La misma muestra (duplicado) | La muestra del 10 % |
+| Bases de datos (esquema `TRAFFIC_ACCIDENTS`) | `DEV_1_BRONZE_DB / 2_SILVER_DB / 3_GOLD_DB` | `PRO_1_BRONZE_DB / 2_SILVER_DB / 3_GOLD_DB` |
+| Estado | Construido y testeado | Construido y testeado |
 
-- Un solo cambio de variable (`APP_ENV`) cambia de entorno.
+- Un solo cambio de variable (`APP_ENV`) cambia de entorno: elige el *target* de dbt (`dev` / `pro`), las bases de datos y los CSV (`DEV_CSV_1/2`, `PRO_CSV_1/2`).
 - La muestra se elige por **hash del ID**: siempre es la misma y es un subconjunto exacto del original → resultados reproducibles.
 - La carga es **idempotente** (`TRUNCATE` + `COPY INTO`) y pide confirmación en PRO.
 
@@ -57,16 +61,18 @@ Proyecto de mentorización · Incorporación a Civica Software
 
 ## Carga a bronze
 
-- Script Python con el conector de Snowflake: `PUT` al stage + `COPY INTO`.
-- **Todo como `VARCHAR`**: el tipado se hace después, en dbt.
+- `setup_snowflake.py` crea las 6 bases de datos, el formato de archivo y el stage (idempotente).
+- `load_bronze.py` (conector de Snowflake): `PUT` al stage + `COPY INTO`, **una vez por origen** → `RAW_ACCIDENTS_1` y `RAW_ACCIDENTS_2`.
+- **Todo como `VARCHAR`**: el tipado se hace después, en silver.
+- El `UNION ALL` de los dos orígenes lo hace dbt (`bronze_accidents`, con columna `origin`); **no deduplica**.
 - Problema real resuelto: algunas descripciones terminan en `\`, y Snowflake lo interpretaba como escape de la coma siguiente y rompía la fila → se desactiva el escape en el formato de archivo.
 - Los nombres de columna se normalizan (`Distance(mi)` → `DISTANCE_MI`).
 
 ---
 
-## Silver: de dato crudo a 3FN
+## Silver: deduplicar, tipar y normalizar a 3FN
 
-**Silver** (`silver_accidents`): deduplica el `UNION ALL` de bronze, tipa con `try_to_*` → un dato malo pasa a `NULL` en vez de romper la carga. Calcula la hora **UTC** a partir de la zona horaria.
+**`silver_accidents`**: deduplica el `UNION ALL` de bronze con la macro `deduplicate` (una fila por `id`; gana `origin_1`), tipa con `try_to_*` → un dato malo pasa a `NULL` en vez de romper la carga. Calcula la hora **UTC** a partir de la zona horaria y las claves de las entidades.
 
 **Intermediate** (tabla central + 3 entidades):
 
@@ -77,7 +83,26 @@ Proyecto de mentorización · Incorporación a Civica Software
 | `location` | una dirección (calle + ciudad + condado + estado + zip) |
 | `weather_observation` | una combinación de datos meteorológicos |
 
-Claves sustitutas deterministas con `dbt_utils.generate_surrogate_key`.
+Claves sustitutas deterministas con `dbt_utils.generate_surrogate_key`, usado directamente (sin macros propias).
+
+---
+
+## Deduplicación: bronze → silver
+
+```sql
+-- macro deduplicate(relation, partition_by, order_by)
+select * from <bronze_accidents>
+qualify row_number() over (partition by id order by origin) = 1
+```
+
+| | Bronze (`UNION ALL`) | Silver (deduplicado) | Repetidos eliminados |
+|---|---|---|---|
+| **DEV** | 1.546.422 | 773.211 | 773.211 |
+| **PRO** | 8.501.605 | 7.728.394 | 773.211 |
+
+- Mismo `id` en los dos orígenes = **la misma fila**: se queda una (la del origen 1).
+- En PRO coincide con el tamaño del CSV completo → la deduplicación elimina exactamente los repetidos.
+- Distinto de los *posibles duplicados* (mismo instante y lugar con **distinto** ID): esos no se tocan.
 
 ---
 
@@ -94,7 +119,7 @@ Claves sustitutas deterministas con `dbt_utils.generate_surrogate_key`.
 - `fact_accidents`: grano **un accidente**. Medidas: gravedad, distancia, duración, meteorología.
 - `dim_date` con **dos roles** (fecha de inicio y de fin).
 - `dim_location` más gruesa que `location` (sin calle).
-- 773.211 filas en DEV: **mismas filas que `accident`** → el modelo no pierde ni duplica.
+- **Mismas filas que `accident`** → el modelo no pierde ni duplica: 773.211 en DEV y 7.728.394 en PRO.
 
 ---
 
@@ -120,7 +145,9 @@ Claves sustitutas deterministas con `dbt_utils.generate_surrogate_key`.
 | **Hora UTC calculada** | El CSV solo trae hora local; se convierte con la zona horaria. Sin zona (~7,8 mil filas) queda NULL en vez de inventarla |
 | **`dim_date` con dos roles** | Inicio y fin del accidente apuntan a la misma dimensión de fecha |
 | **Bronze todo `VARCHAR`, tipado en silver con `try_to_*`** | Un dato mal formado pasa a NULL en vez de romper la carga, y bronze conserva el original |
-| **Duplicados: marcar, no borrar** | Mismo instante, coordenadas y descripción, pero distinto ID y a veces distinta gravedad u hora de fin: no es seguro que sean copias |
+| **Mismo ID en dos orígenes: eliminar en silver** | Es la misma fila repetida; bronze la conserva para poder reprocesar |
+| **Posibles duplicados (distinto ID): marcar, no borrar** | Mismo instante, coordenadas y descripción, pero distinto ID y a veces distinta gravedad u hora de fin: no es seguro que sean copias |
+| **Una base de datos por capa y entorno** | Separa DEV de PRO y permite dar permisos distintos por capa |
 
 ---
 
@@ -129,11 +156,11 @@ Claves sustitutas deterministas con `dbt_utils.generate_surrogate_key`.
 | Capa | Materialización | Motivo |
 |---|---|---|
 | **Bronze** | **Vista** | Solo es el `UNION ALL` de los dos orígenes: no merece duplicar el almacenamiento |
-| **Silver** | **Tabla** | `silver_accidents` (dedup + tipado) alimenta 4 modelos y los gold hacen JOIN sobre ellas; evita repetir el cálculo |
+| **Silver** | **Tabla** (`silver_accidents`: incremental) | `silver_accidents` (dedup + tipado) alimenta 4 modelos y los gold hacen JOIN sobre ellas; evita repetir el cálculo |
 | **Gold** | **Tabla** | Es lo que consultan los usuarios: debe responder rápido y no depender de cálculo en cada consulta |
 
 - Compromiso: las tablas ocupan almacenamiento y se **reconstruyen enteras** en cada build. Aquí compensa: el dato no cambia y se lee muchas más veces de las que se construye.
-- Está parametrizado (`DBT_MAT_STAGING`, `DBT_MAT_INTERMEDIATE`, `DBT_MAT_MARTS`): cambiar a vista no requiere tocar código.
+- Está parametrizado (`DBT_MAT_BRONZE`, `DBT_MAT_SILVER`, `DBT_MAT_GOLD`): cambiar a vista no requiere tocar código.
 - Hoy la variable es **global**, igual en DEV y en PRO.
 
 ---
@@ -153,16 +180,18 @@ Claves sustitutas deterministas con `dbt_utils.generate_surrogate_key`.
 
 ---
 
-## ¿Por qué no modelos incrementales?
+## Modelo incremental: `silver_accidents`
 
-Un incremental procesa **solo las filas nuevas** desde el último build. Hoy no encaja:
+Un incremental procesa **solo las filas nuevas** desde el último build. Está aplicado solo donde tiene sentido:
 
-- **No hay filas nuevas:** el dataset es estático.
-- **Bronze se recarga entera** con `TRUNCATE`: no hay `loaded_at` ni fecha de corte para saber qué es nuevo.
-- **El ahorro es pequeño:** reconstruir 7,7 M de filas es un coste puntual (no medido todavía en PRO).
-- **Añade riesgo:** estrategia `merge`, clave única, y si cambias el SQL las filas ya cargadas no se recalculan solas (`--full-refresh`).
+- **`silver_accidents` es incremental** (`merge` por `accident_id`): el primer build crea la tabla; los siguientes añaden solo los accidentes que aún no están (`where not exists`).
+- **Prueba hecha en DEV:** inserto un accidente a mano en bronze → `dbt run` procesa **1 fila** (`SUCCESS 1`, no 773 mil) → aparece en silver y en `fact_accidents` (+1 en ambos). Luego se borra.
+- Gold y el resto de silver siguen siendo **tablas completas**: se reconstruyen desde `silver_accidents`.
 
-**Cuándo sí:** cargas periódicas que añaden registros (p. ej. una API cada día). Haría falta `loaded_at` en bronze, carga con `INSERT`/`MERGE` y `silver_accidents` incremental con `merge` por `accident_id`.
+**Límites que conozco:**
+- Solo detecta accidentes **nuevos** (ID nuevo), no cambios en uno existente, y nunca borra.
+- Si cambia la lógica de las columnas hay que reconstruir con `--full-refresh`.
+- Bronze se recarga entera (`TRUNCATE`): para una carga periódica real haría falta `loaded_at` y `INSERT`/`MERGE`.
 
 ---
 
@@ -185,15 +214,15 @@ Un incremental procesa **solo las filas nuevas** desde el último build. Hoy no 
 |---|---|---|
 | Indicadores de vía | En `accident` | Hay que analizar cada elemento por separado |
 | Granularidad de `dim_location` | Sin calle | Se quiere analizar por carretera |
-| Duplicados | Marcar, no borrar | Se confirma con la fuente que son copias |
-| Materialización | Tablas en todas las capas | El almacenamiento o el tiempo de build pesan más que el cómputo de consulta |
+| Duplicados | Mismo ID: eliminar en silver. Distinto ID: marcar, no borrar | Se confirma con la fuente que los posibles duplicados son copias |
+| Materialización | Vista en bronze, tablas en silver y gold | El almacenamiento o el tiempo de build pesan más que el cómputo de consulta |
 | SCD2 / snapshots | No | Hay una fuente que actualiza registros |
-| Incrementales | No | Hay cargas periódicas que añaden filas |
+| Incrementales | Solo `silver_accidents` (por ID nuevo) | Hay cargas periódicas con cambios sobre registros existentes (haría falta `loaded_at`) |
 | Frescura | No | Los datos pasan a venir de una API viva |
 
 ---
 
-## Calidad de datos: 86 tests
+## Calidad de datos: 91 tests
 
 | Tipo | Ejemplos |
 |---|---|
@@ -204,7 +233,7 @@ Un incremental procesa **solo las filas nuevas** desde el último build. Hoy no 
 | Consistencia | `fact_accidents` tiene las mismas filas que `accident` |
 | Reglas de negocio | Fin ≥ inicio; coordenadas en EE. UU.; posibles duplicados |
 
-**Resultado en DEV: 76 OK · 10 avisos · 0 errores.**
+**Resultado en DEV y en PRO: 81 OK · 10 avisos · 0 errores.**
 
 ---
 
@@ -213,7 +242,7 @@ Un incremental procesa **solo las filas nuevas** desde el último build. Hoy no 
 No son fallos del pipeline, son **hallazgos de calidad del dato**:
 
 - **Posibles duplicados:** mismo instante, coordenadas y descripción con distinto ID (~300 mil en el dataset completo). No se eliminan porque el ID es distinto.
-- **Lecturas de sensor imposibles:** temperatura (4), sensación térmica (2) y presión (2) fuera de rango plausible.
+- **Lecturas de sensor imposibles:** temperatura, sensación térmica y presión fuera de rango plausible (en DEV: 4, 2 y 2 filas; se repiten en silver, `weather_observation` y la fact).
 
 Los rangos son `warn`, no `error`: avisan sin bloquear el build.
 
@@ -259,13 +288,15 @@ Los rangos son `warn`, no `error`: avisan sin bloquear el build.
 - Los **tests encuentran cosas** que no ves a ojo: 8 lecturas de sensor imposibles y 300 mil posibles duplicados.
 - Pasé de «tabla plana» a un modelo **3FN + estrella** y entendí por qué ambos.
 - Trabajar con **dos entornos** desde el principio evita tocar el dato completo por accidente.
+- Con **dos orígenes** y una macro de deduplicación, el dato repetido se limpia en un único sitio (silver) sin perder el crudo en bronze.
+- Menos es más: las macros de claves propias sobraban; `dbt_utils` directamente basta.
 - Herramientas nuevas para mí: dbt (modelos, tests, macros, doc blocks), Snowflake (stages, `COPY INTO`, `UNPIVOT`).
 
 ---
 
 ## Pendiente y próximos pasos
 
-- [ ] Materializar **PRO** (`dbt build` con el dataset completo).
+- [x] Materializar **PRO** (`dbt build` con el dataset completo): 7.728.394 accidentes, 91 tests sin errores.
 - [ ] Más tests: coherencia `location` ↔ `dim_location`; `accepted_values` en estado y meteorología.
 - [ ] Decidir qué hacer con los **posibles duplicados** (filtrar, marcar o dejar).
 - [ ] Orquestación (programar la carga y el build) y CI.

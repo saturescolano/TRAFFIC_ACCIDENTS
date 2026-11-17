@@ -12,9 +12,9 @@ Snowflake y modelados con dbt en arquitectura medallón.
 
 | Capa | Base de datos (esquema `TRAFFIC_ACCIDENTS`) | Carpeta | Contenido |
 |---|---|---|---|
-| Bronze | `DEV_BRONZE_DB` / `PRO_BRONZE_DB` | `1_bronze/` | Dos orígenes crudos (`raw_accidents_1/2`, todo `VARCHAR`) unidos con `UNION ALL` en `bronze_accidents`. Los carga `scripts/load_bronze.py`. |
-| Silver | `DEV_SILVER_DB` / `PRO_SILVER_DB` | `2_silver/` | Deduplicado (macro `deduplicate`), tipado y normalizado a 3FN. |
-| Gold | `DEV_GOLD_DB` / `PRO_GOLD_DB` | `3_gold/` | Modelo dimensional (estrella) para análisis. |
+| Bronze | `DEV_1_BRONZE_DB` / `PRO_1_BRONZE_DB` | `1_bronze/` | Dos orígenes crudos (`raw_accidents_1/2`, todo `VARCHAR`) unidos con `UNION ALL` en `bronze_accidents`. Los carga `scripts/load_bronze.py`. |
+| Silver | `DEV_2_SILVER_DB` / `PRO_2_SILVER_DB` | `2_silver/` | Deduplicado (macro `deduplicate`), tipado y normalizado a 3FN. |
+| Gold | `DEV_3_GOLD_DB` / `PRO_3_GOLD_DB` | `3_gold/` | Modelo dimensional (estrella) para análisis. |
 
 **Entornos.** `APP_ENV=DEV` trabaja con una muestra determinista del 10 % del
 CSV; `APP_ENV=PRO` con el archivo completo. Cada entorno tiene sus propias

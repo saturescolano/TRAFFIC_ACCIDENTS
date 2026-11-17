@@ -1,7 +1,17 @@
 {# Silver plano: deduplica bronze (un accidente aparece una vez por origen),
    tipa con try_to_* y calcula las claves de las entidades. Una fila por
    accidente. Las tablas accident, source, location y weather_observation
-   salen de aquí, así las claves se definen en un único sitio. #}
+   salen de aquí, así las claves se definen en un único sitio.
+
+   INCREMENTAL: el primer build crea la tabla entera; los siguientes solo
+   añaden los accidentes nuevos (clave accident_id, estrategia merge). Si
+   cambias la lógica de las columnas hay que reconstruir con --full-refresh. #}
+{{ config(
+    materialized="incremental",
+    unique_key="accident_id",
+    incremental_strategy="merge",
+    on_schema_change="append_new_columns"
+) }}
 with typed as (
 select
     id                                                  as accident_id,
@@ -52,7 +62,11 @@ select
     try_to_boolean(turning_loop)                        as turning_loop,
 
     sunrise_sunset, civil_twilight, nautical_twilight, astronomical_twilight
-from {{ deduplicate(ref('bronze_accidents'), ['id'], ['origin']) }}
+from {{ deduplicate(ref('bronze_accidents'), ['id'], ['origin']) }} as bronze
+{% if is_incremental() %}
+-- Solo accidentes que aún no están en silver (p. ej. un registro insertado a mano en bronze)
+where not exists (select 1 from {{ this }} s where s.accident_id = bronze.id)
+{% endif %}
 )
 
 select

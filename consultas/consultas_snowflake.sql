@@ -1,10 +1,10 @@
 -- Consultas de análisis sobre el modelo en estrella (capa gold).
 -- Se ejecutan en una hoja (worksheet) de Snowflake.
 --
--- Entorno: cambia DEV_GOLD_DB por PRO_GOLD_DB en la línea siguiente para usar el dataset completo.
+-- Entorno: cambia DEV_3_GOLD_DB por PRO_3_GOLD_DB en la línea siguiente para usar el dataset completo.
 --   DEV = muestra determinista del 10 % (~773 mil accidentes)
 --   PRO = dataset completo (~7,7 M de accidentes)
-USE SCHEMA DEV_GOLD_DB.TRAFFIC_ACCIDENTS;
+USE SCHEMA DEV_3_GOLD_DB.TRAFFIC_ACCIDENTS;
 
 -- ─────────────────────────────────────────────────────────────
 -- 1. Volumen total y rango de fechas

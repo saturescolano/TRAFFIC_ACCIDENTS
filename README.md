@@ -30,11 +30,11 @@ Seis bases de datos, cada una con el esquema `TRAFFIC_ACCIDENTS`:
 
 | Capa | DEV | PRO | Carpeta dbt | Contenido |
 |---|---|---|---|---|
-| Bronze | `DEV_BRONZE_DB` | `PRO_BRONZE_DB` | `models/1_bronze/` | Dos orígenes crudos (todo `VARCHAR`) y su `UNION ALL`, con duplicados. Los carga `scripts/load_bronze.py`. |
-| Silver | `DEV_SILVER_DB` | `PRO_SILVER_DB` | `models/2_silver/` | Deduplicado (macro `deduplicate`), tipado y normalizado a 3FN. |
-| Gold | `DEV_GOLD_DB` | `PRO_GOLD_DB` | `models/3_gold/` | Modelo dimensional en estrella para análisis. |
+| Bronze | `DEV_1_BRONZE_DB` | `PRO_1_BRONZE_DB` | `models/1_bronze/` | Dos orígenes crudos (todo `VARCHAR`) y su `UNION ALL`, con duplicados. Los carga `scripts/load_bronze.py`. |
+| Silver | `DEV_2_SILVER_DB` | `PRO_2_SILVER_DB` | `models/2_silver/` | Deduplicado (macro `deduplicate`), tipado y normalizado a 3FN. |
+| Gold | `DEV_3_GOLD_DB` | `PRO_3_GOLD_DB` | `models/3_gold/` | Modelo dimensional en estrella para análisis. |
 
-La base de datos de cada modelo la fija la macro `generate_database_name` (`{ENTORNO}_{CAPA}_DB`) y el esquema `generate_schema_name` (siempre `TRAFFIC_ACCIDENTS`).
+La base de datos de cada modelo la fija la macro `generate_database_name` (`{ENTORNO}_{N}_{CAPA}_DB`) y el esquema `generate_schema_name` (siempre `TRAFFIC_ACCIDENTS`).
 
 ## Estructura del repositorio
 
@@ -54,7 +54,7 @@ La base de datos de cada modelo la fija la macro `generate_database_name` (`{ENT
     ├── packages.yml          # dbt_utils >=1.3.0, <2.0.0
     ├── macros/
     │   ├── deduplicate.sql             # una fila por clave (QUALIFY row_number)
-    │   ├── generate_database_name.sql  # {ENTORNO}_{CAPA}_DB
+    │   ├── generate_database_name.sql  # {ENTORNO}_{N}_{CAPA}_DB
     │   └── generate_schema_name.sql    # siempre TRAFFIC_ACCIDENTS
     ├── models/
     │   ├── docs.md                   # doc blocks reutilizables y página de inicio de dbt docs
@@ -116,7 +116,7 @@ Alternativamente, `scripts/dbt.py` es un envoltorio que carga el `.env` y añade
 |---|---|---|
 | `APP_ENV` / target dbt | `DEV` / `dev` | `PRO` / `pro` |
 | CSV cargado (x2 orígenes) | `DEV_CSV_1/2` (muestra 10 %) | `PRO_CSV_1/2` (completo) |
-| Bases de datos | `DEV_BRONZE_DB`, `DEV_SILVER_DB`, `DEV_GOLD_DB` | `PRO_BRONZE_DB`, `PRO_SILVER_DB`, `PRO_GOLD_DB` |
+| Bases de datos | `DEV_1_BRONZE_DB`, `DEV_2_SILVER_DB`, `DEV_3_GOLD_DB` | `PRO_1_BRONZE_DB`, `PRO_2_SILVER_DB`, `PRO_3_GOLD_DB` |
 
 - **Muestra determinista.** `sample_csv.py` se queda con las filas cuyo hash del `ID` cae en el porcentaje indicado. Es siempre la misma y un subconjunto exacto del original, así que los resultados de DEV son reproducibles.
 - **Carga idempotente.** `load_bronze.py` hace `TRUNCATE` + `COPY INTO` en cada origen: repetirla no duplica filas. En PRO pide confirmación (`--yes` la omite).
@@ -131,7 +131,7 @@ Alternativamente, `scripts/dbt.py` es un envoltorio que carga el `.env` y añade
 
 | Modelo | Grano | Descripción |
 |---|---|---|
-| `silver_accidents` | un accidente | Deduplica por `id` (macro `deduplicate`; gana `origin_1`), tipa con `try_to_*` (los inválidos pasan a `NULL`), calcula horas UTC y las claves de las entidades. |
+| `silver_accidents` | un accidente | **Incremental** (`merge` por `accident_id`). Deduplica por `id` (macro `deduplicate`; gana `origin_1`), tipa con `try_to_*` (los inválidos pasan a `NULL`), calcula horas UTC y las claves de las entidades. |
 | `accident` | un accidente | Tabla central 3FN con FK a `source`, `location` y `weather_observation`. |
 | `source` | una fuente | Fuentes distintas (`source_name`). |
 | `location` | una dirección | Calle + ciudad + condado + estado + zip. |
@@ -256,6 +256,14 @@ Los 10 avisos actuales son reales, no errores del pipeline:
 - **`accepted_values` de `state`, `wind_direction` y `weather_condition`:** no se incluyen por tener listas largas y abiertas. Una opción sería `relationships` contra un seed de estados.
 - **Coherencia entre `location` y `dim_location`:** no hay un test que compruebe que cada `location_key` de la fact coincide con una dirección de `location` (solo la integridad con `dim_location`).
 - **Umbrales de `warn`:** al ser avisos, no hay nada que bloquee un aumento de valores atípicos. Si se quiere, se puede fijar `error_if` con un límite.
+
+## Modelo incremental
+
+`silver_accidents` es incremental: el primer build crea la tabla y los siguientes solo añaden los accidentes cuyo `id` aún no está en silver (`where not exists`, estrategia `merge`). El resto de silver y gold son tablas completas que se reconstruyen desde él.
+
+Para comprobarlo en DEV, [consultas/prueba_incremental.sql](consultas/prueba_incremental.sql): se inserta un accidente a mano en `RAW_ACCIDENTS_1`, `dbt run` procesa **1 fila** (`SUCCESS 1`) y aparece en silver y en `fact_accidents`.
+
+Límites: solo detecta IDs nuevos (no cambios ni borrados) y, si cambia la lógica de las columnas, hay que reconstruir con `dbt run --full-refresh --select silver_accidents`. `DBT_MAT_SILVER` no afecta a este modelo.
 
 ## Decisiones de diseño
 

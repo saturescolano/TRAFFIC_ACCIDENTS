@@ -3,9 +3,9 @@
 Cada entorno tiene DOS orígenes (si no se define *_CSV_2 se usa el mismo
 archivo que *_CSV_1, es decir, el dato queda duplicado a propósito):
 
-  APP_ENV=DEV -> DEV_CSV_1 -> DEV_BRONZE_DB.TRAFFIC_ACCIDENTS.RAW_ACCIDENTS_1
-                 DEV_CSV_2 -> DEV_BRONZE_DB.TRAFFIC_ACCIDENTS.RAW_ACCIDENTS_2
-  APP_ENV=PRO -> PRO_CSV_1 / PRO_CSV_2 -> PRO_BRONZE_DB ...
+  APP_ENV=DEV -> DEV_CSV_1 -> DEV_1_BRONZE_DB.TRAFFIC_ACCIDENTS.RAW_ACCIDENTS_1
+                 DEV_CSV_2 -> DEV_1_BRONZE_DB.TRAFFIC_ACCIDENTS.RAW_ACCIDENTS_2
+  APP_ENV=PRO -> PRO_CSV_1 / PRO_CSV_2 -> PRO_1_BRONZE_DB ...
 
 El UNION ALL de ambos orígenes lo hace dbt (modelo bronze_accidents).
 Requiere haber ejecutado antes scripts/setup_snowflake.py.
@@ -86,7 +86,7 @@ def main() -> None:
         if not path.is_file():
             sys.exit(f"No existe el archivo: {path}")
 
-    database = f"{env}_BRONZE_DB"
+    database = f"{env}_1_BRONZE_DB"
     qualified = f"{database}.{SCHEMA}"
     print(f"Entorno {env} -> {qualified}")
 

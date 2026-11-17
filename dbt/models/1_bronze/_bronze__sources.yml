@@ -7,7 +7,7 @@ sources:
       COPY INTO). Todas las columnas son `VARCHAR`. Hay **dos orígenes** con el
       mismo formato; en este proyecto el segundo es una copia del primero, para
       poder practicar la deduplicación en silver.
-    database: "{{ target.name | upper }}_BRONZE_DB"
+    database: "{{ target.name | upper }}_1_BRONZE_DB"
     schema: TRAFFIC_ACCIDENTS
     tables:
       - name: raw_accidents_1

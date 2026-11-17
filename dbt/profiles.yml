@@ -1,7 +1,7 @@
 # Sin secretos: todo sale de variables de entorno (.env, cargado por scripts/dbt.py).
 # Dos targets, dev y pro; el activo lo decide APP_ENV (DEV | PRO).
 # La base de datos del target es solo la de arranque: cada modelo se crea en su
-# {ENTORNO}_{CAPA}_DB gracias a generate_database_name.
+# {ENTORNO}_{N}_{CAPA}_DB gracias a generate_database_name.
 traffic_accidents:
   target: "{{ env_var('APP_ENV', 'DEV') | lower }}"
   outputs:
@@ -12,7 +12,7 @@ traffic_accidents:
       password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
       role: "{{ env_var('SNOWFLAKE_ROLE') }}"
       warehouse: "{{ env_var('DEV_SNOWFLAKE_WAREHOUSE', env_var('SNOWFLAKE_WAREHOUSE')) }}"
-      database: DEV_SILVER_DB
+      database: DEV_2_SILVER_DB
       schema: TRAFFIC_ACCIDENTS
       threads: 4
     pro:
@@ -22,6 +22,6 @@ traffic_accidents:
       password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
       role: "{{ env_var('SNOWFLAKE_ROLE') }}"
       warehouse: "{{ env_var('PRO_SNOWFLAKE_WAREHOUSE', env_var('SNOWFLAKE_WAREHOUSE')) }}"
-      database: PRO_SILVER_DB
+      database: PRO_2_SILVER_DB
       schema: TRAFFIC_ACCIDENTS
       threads: 4
