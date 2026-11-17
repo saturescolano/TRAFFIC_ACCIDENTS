@@ -1,4 +1,8 @@
-{# Limpia y tipa bronze (todo texto) sin cambiar su forma. Una fila por accidente. #}
+{# Silver plano: deduplica bronze (un accidente aparece una vez por origen),
+   tipa con try_to_* y calcula las claves de las entidades. Una fila por
+   accidente. Las tablas accident, source, location y weather_observation
+   salen de aquí, así las claves se definen en un único sitio. #}
+with typed as (
 select
     id                                                  as accident_id,
     source                                              as source_name,
@@ -48,4 +52,26 @@ select
     try_to_boolean(turning_loop)                        as turning_loop,
 
     sunrise_sunset, civil_twilight, nautical_twilight, astronomical_twilight
-from {{ source('bronze', 'raw_accidents') }}
+from {{ deduplicate(ref('bronze_accidents'), ['id'], ['origin']) }}
+)
+
+select
+    accident_id,
+    {{ dbt_utils.generate_surrogate_key(['source_name']) }}  as source_id,
+    {{ dbt_utils.generate_surrogate_key(['street', 'city', 'county', 'state', 'zipcode']) }} as location_id,
+    -- Sin ningún dato meteorológico no hay observación: weather_id NULL, no
+    -- una observación fantasma compartida por miles de accidentes.
+    case
+        when weather_timestamp is null and airport_code is null
+         and temperature_f is null and wind_chill_f is null and humidity_pct is null
+         and pressure_in is null and visibility_mi is null and wind_direction is null
+         and wind_speed_mph is null and precipitation_in is null and weather_condition is null
+        then null
+        else {{ dbt_utils.generate_surrogate_key([
+            'weather_timestamp', 'airport_code', 'temperature_f', 'wind_chill_f',
+            'humidity_pct', 'pressure_in', 'visibility_mi', 'wind_direction',
+            'wind_speed_mph', 'precipitation_in', 'weather_condition'
+        ]) }}
+    end                                                      as weather_id,
+    * exclude (accident_id)
+from typed

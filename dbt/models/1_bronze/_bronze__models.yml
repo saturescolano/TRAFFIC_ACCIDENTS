@@ -1,0 +1,19 @@
+version: 2
+
+models:
+  - name: bronze_accidents
+    description: >
+      `UNION ALL` de los dos orígenes crudos (`raw_accidents_1` y
+      `raw_accidents_2`). Todo `VARCHAR`, sin tipar ni deduplicar: cada
+      accidente que está en ambos orígenes aparece dos veces. Es la entrada de
+      `silver_accidents`.
+    columns:
+      - name: origin
+        description: 'Origen de la fila: `origin_1` o `origin_2`.'
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments: {values: ['origin_1', 'origin_2']}
+      - name: id
+        description: 'Identificador del accidente. **No es único** aquí: puede repetirse una vez por origen.'
+        data_tests: [not_null]

@@ -1,14 +1,27 @@
-# Sin secretos: todo sale de variables de entorno (.env, cargado por scripts/dbt.py)
+# Sin secretos: todo sale de variables de entorno (.env, cargado por scripts/dbt.py).
+# Dos targets, dev y pro; el activo lo decide APP_ENV (DEV | PRO).
+# La base de datos del target es solo la de arranque: cada modelo se crea en su
+# {ENTORNO}_{CAPA}_DB gracias a generate_database_name.
 traffic_accidents:
-  target: default
+  target: "{{ env_var('APP_ENV', 'DEV') | lower }}"
   outputs:
-    default:
+    dev:
       type: snowflake
       account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
       user: "{{ env_var('SNOWFLAKE_USER') }}"
       password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
       role: "{{ env_var('SNOWFLAKE_ROLE') }}"
-      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE') }}"
-      database: "{{ env_var('SNOWFLAKE_DATABASE') }}"
-      schema: "{{ env_var('APP_ENV', 'DEV') | upper }}_SILVER"
+      warehouse: "{{ env_var('DEV_SNOWFLAKE_WAREHOUSE', env_var('SNOWFLAKE_WAREHOUSE')) }}"
+      database: DEV_SILVER_DB
+      schema: TRAFFIC_ACCIDENTS
+      threads: 4
+    pro:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+      role: "{{ env_var('SNOWFLAKE_ROLE') }}"
+      warehouse: "{{ env_var('PRO_SNOWFLAKE_WAREHOUSE', env_var('SNOWFLAKE_WAREHOUSE')) }}"
+      database: PRO_SILVER_DB
+      schema: TRAFFIC_ACCIDENTS
       threads: 4

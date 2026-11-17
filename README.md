@@ -18,20 +18,23 @@ Proyecto de mentorización para la incorporación a Civica Software.
 ## Arquitectura
 
 ```
-CSV ──load_bronze.py──▶ BRONZE ──stg_accidents──▶ SILVER ───────────────▶ GOLD
-                        raw_accidents            (staging + 3FN)         (estrella)
-                        (todo VARCHAR)           accident, source,       fact_accidents
-                                                 location,               dim_date, dim_source,
-                                                 weather_observation     dim_location
+2 CSV ──load_bronze.py──▶ BRONZE ───────────────▶ SILVER ───────────────▶ GOLD
+(origen 1 y 2)            raw_accidents_1          silver_accidents        (estrella)
+                          UNION ALL                (dedup + tipado)        fact_accidents
+                          raw_accidents_2          accident, source,       dim_date, dim_source,
+                          = bronze_accidents       location,               dim_location
+                                                   weather_observation
 ```
 
-| Capa | Esquema Snowflake | Carpeta dbt | Contenido |
-|---|---|---|---|
-| Bronze | `{APP_ENV}_BRONZE` | `models/sources.yml` | CSV crudo, todo `VARCHAR`. Lo carga `scripts/load_bronze.py`. |
-| Silver | `{APP_ENV}_SILVER` | `models/staging/`, `models/intermediate/` | Dato tipado (staging) y normalizado a 3FN (intermediate). |
-| Gold | `{APP_ENV}_GOLD` | `models/marts/` | Modelo dimensional en estrella para análisis. |
+Seis bases de datos, cada una con el esquema `TRAFFIC_ACCIDENTS`:
 
-Los nombres de esquema los fija la macro `generate_schema_name` (p. ej. `DEV_SILVER`, `PRO_GOLD`), no el comportamiento por defecto de dbt.
+| Capa | DEV | PRO | Carpeta dbt | Contenido |
+|---|---|---|---|---|
+| Bronze | `DEV_BRONZE_DB` | `PRO_BRONZE_DB` | `models/1_bronze/` | Dos orígenes crudos (todo `VARCHAR`) y su `UNION ALL`, con duplicados. Los carga `scripts/load_bronze.py`. |
+| Silver | `DEV_SILVER_DB` | `PRO_SILVER_DB` | `models/2_silver/` | Deduplicado (macro `deduplicate`), tipado y normalizado a 3FN. |
+| Gold | `DEV_GOLD_DB` | `PRO_GOLD_DB` | `models/3_gold/` | Modelo dimensional en estrella para análisis. |
+
+La base de datos de cada modelo la fija la macro `generate_database_name` (`{ENTORNO}_{CAPA}_DB`) y el esquema `generate_schema_name` (siempre `TRAFFIC_ACCIDENTS`).
 
 ## Estructura del repositorio
 
@@ -40,29 +43,30 @@ Los nombres de esquema los fija la macro `generate_schema_name` (p. ej. `DEV_SIL
 ├── .env.example              # plantilla de variables de entorno (copiar a .env)
 ├── requirements.txt          # dependencias Python
 ├── scripts/
-│   ├── load_bronze.py        # carga el CSV en bronze (TRUNCATE + COPY INTO)
+│   ├── setup_snowflake.py    # crea las 6 bases de datos, esquema, CSV_FORMAT y RAW_STAGE
+│   ├── load_bronze.py        # carga los 2 orígenes del entorno (TRUNCATE + COPY INTO)
 │   ├── sample_csv.py         # genera la muestra determinista para DEV
 │   ├── dbt.py                # ejecuta dbt cargando antes el .env
 │   └── env.ps1               # prepara la sesión de PowerShell para usar `dbt` a secas
 └── dbt/
-    ├── dbt_project.yml       # materialización y esquema por capa
-    ├── profiles.yml          # conexión a Snowflake (solo variables de entorno)
+    ├── dbt_project.yml       # base de datos y materialización por capa
+    ├── profiles.yml          # targets dev y pro (solo variables de entorno)
     ├── packages.yml          # dbt_utils >=1.3.0, <2.0.0
     ├── macros/
-    │   ├── entity_keys.sql           # location_key(), weather_key()
-    │   └── generate_schema_name.sql  # {APP_ENV}_{capa}
+    │   ├── deduplicate.sql             # una fila por clave (QUALIFY row_number)
+    │   ├── generate_database_name.sql  # {ENTORNO}_{CAPA}_DB
+    │   └── generate_schema_name.sql    # siempre TRAFFIC_ACCIDENTS
     ├── models/
     │   ├── docs.md                   # doc blocks reutilizables y página de inicio de dbt docs
-    │   ├── sources.yml
-    │   ├── staging/                  # stg_accidents + _staging__models.yml
-    │   ├── intermediate/             # accident, source, location, weather_observation
-    │   └── marts/                    # fact_accidents, dim_date, dim_source, dim_location
+    │   ├── 1_bronze/                 # sources, bronze_accidents (UNION ALL)
+    │   ├── 2_silver/                 # silver_accidents, accident, source, location, weather_observation
+    │   └── 3_gold/                   # fact_accidents, dim_date, dim_source, dim_location
     └── tests/                        # tests singulares (reglas de negocio) + _tests.yml
 ```
 
 ## Puesta en marcha
 
-Requisitos: Python 3.10+, una cuenta de Snowflake con una base de datos, un warehouse y los esquemas `DEV_BRONZE` / `PRO_BRONZE` (con `RAW_STAGE` y el formato de archivo `CSV_FORMAT`), y el CSV original de US Accidents.
+Requisitos: Python 3.10+, una cuenta de Snowflake con permisos para crear bases de datos (rol `SYSADMIN`) y un warehouse, y el CSV original de US Accidents.
 
 ```bash
 python -m venv .venv
@@ -72,8 +76,9 @@ pip install -r requirements.txt
 copy .env.example .env                # y rellenar credenciales y rutas de los CSV
 
 python scripts/load_bronze.py --test  # comprueba la conexión
+python scripts/setup_snowflake.py     # crea DEV_*_DB y PRO_*_DB (una sola vez)
 python scripts/sample_csv.py          # genera la muestra del 10 % (solo la primera vez)
-python scripts/load_bronze.py         # carga bronze según APP_ENV
+python scripts/load_bronze.py         # carga los 2 orígenes según APP_ENV
 
 cd dbt && ..\.venv\Scripts\dbt deps && cd ..   # instala dbt_utils
 python scripts/dbt.py debug           # comprueba la conexión de dbt
@@ -85,10 +90,10 @@ python scripts/dbt.py build           # run + test de todos los modelos
 ```powershell
 . .\scripts\env.ps1      # carga el .env y apunta dbt a dbt/ (nota el punto inicial)
 dbt test
-dbt run --select marts
+dbt run --select 3_gold
 ```
 
-Alternativamente, `scripts/dbt.py` es un envoltorio que carga el `.env` y añade `--project-dir`/`--profiles-dir`, de modo que cualquier subcomando de dbt funciona igual: `python scripts/dbt.py run --select marts`.
+Alternativamente, `scripts/dbt.py` es un envoltorio que carga el `.env` y añade `--project-dir`/`--profiles-dir`: `python scripts/dbt.py run --select 3_gold`.
 
 ### Variables de entorno (`.env`)
 
@@ -96,11 +101,12 @@ Alternativamente, `scripts/dbt.py` es un envoltorio que carga el `.env` y añade
 |---|---|
 | `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_PASSWORD` | Credenciales (obligatorias). |
 | `SNOWFLAKE_ROLE` | Rol (por defecto `SYSADMIN`). |
-| `SNOWFLAKE_WAREHOUSE`, `SNOWFLAKE_DATABASE` | Warehouse y base de datos. |
-| `APP_ENV` | `DEV` o `PRO`. Decide esquemas y CSV a cargar. |
-| `CSV_ORIGINAL`, `CSV_SAMPLE` | Rutas al CSV completo y a la muestra. |
+| `SNOWFLAKE_WAREHOUSE` | Warehouse. `DEV_SNOWFLAKE_WAREHOUSE` / `PRO_SNOWFLAKE_WAREHOUSE` (opcionales) lo sobrescriben por entorno. |
+| `APP_ENV` | `DEV` o `PRO`. Decide target de dbt, bases de datos y CSV a cargar. |
+| `DEV_CSV_1`, `DEV_CSV_2` | CSV de los dos orígenes de DEV (la muestra, duplicada). |
+| `PRO_CSV_1`, `PRO_CSV_2` | CSV de los dos orígenes de PRO (el original completo, duplicado). Si falta `*_CSV_2`, se usa el mismo archivo que `*_CSV_1`. |
 | `SAMPLE_PERCENT` | Porcentaje de la muestra (por defecto 10). |
-| `DBT_MAT_STAGING`, `DBT_MAT_INTERMEDIATE`, `DBT_MAT_MARTS` | Opcionales. Materialización por capa (`table` o `view`; por defecto `table`). |
+| `DBT_MAT_BRONZE`, `DBT_MAT_SILVER`, `DBT_MAT_GOLD` | Opcionales. Materialización por capa (`table` o `view`; por defecto `view`, `table`, `table`). |
 
 > `.env` y los CSV están en `.gitignore`: nunca se suben al repositorio.
 
@@ -108,24 +114,24 @@ Alternativamente, `scripts/dbt.py` es un envoltorio que carga el `.env` y añade
 
 | | DEV | PRO |
 |---|---|---|
-| `APP_ENV` | `DEV` | `PRO` |
-| CSV cargado | `CSV_SAMPLE` (10 %) | `CSV_ORIGINAL` (completo) |
-| Esquemas | `DEV_BRONZE`, `DEV_SILVER`, `DEV_GOLD` | `PRO_BRONZE`, `PRO_SILVER`, `PRO_GOLD` |
+| `APP_ENV` / target dbt | `DEV` / `dev` | `PRO` / `pro` |
+| CSV cargado (x2 orígenes) | `DEV_CSV_1/2` (muestra 10 %) | `PRO_CSV_1/2` (completo) |
+| Bases de datos | `DEV_BRONZE_DB`, `DEV_SILVER_DB`, `DEV_GOLD_DB` | `PRO_BRONZE_DB`, `PRO_SILVER_DB`, `PRO_GOLD_DB` |
 
 - **Muestra determinista.** `sample_csv.py` se queda con las filas cuyo hash del `ID` cae en el porcentaje indicado. Es siempre la misma y un subconjunto exacto del original, así que los resultados de DEV son reproducibles.
-- **Carga idempotente.** `load_bronze.py` hace `TRUNCATE` + `COPY INTO`: repetirla no duplica filas. En PRO pide confirmación (`--yes` la omite).
-- **Claves sustitutas.** Si cambias las columnas de las macros `location_key` o `weather_key`, hay que reconstruir intermediate y marts con `--full-refresh`.
+- **Carga idempotente.** `load_bronze.py` hace `TRUNCATE` + `COPY INTO` en cada origen: repetirla no duplica filas. En PRO pide confirmación (`--yes` la omite).
+- **Duplicados a propósito.** Los dos orígenes contienen el mismo CSV, así que `bronze_accidents` tiene cada accidente dos veces (DEV: 1.546.422 filas) y silver lo deja en una (773.211) con la macro `deduplicate`.
 
 ## Modelos de datos
 
 ### Bronze
-`raw_accidents`: una fila por línea del CSV, todas las columnas `VARCHAR`, con nombres normalizados (`Distance(mi)` → `DISTANCE_MI`, `Humidity(%)` → `HUMIDITY_PCT`).
+`raw_accidents_1` y `raw_accidents_2`: una fila por línea del CSV, todas las columnas `VARCHAR`, con nombres normalizados (`Distance(mi)` → `DISTANCE_MI`). `bronze_accidents` es su `UNION ALL` con una columna `origin` (`origin_1` / `origin_2`); no deduplica.
 
 ### Silver
 
 | Modelo | Grano | Descripción |
 |---|---|---|
-| `stg_accidents` | un accidente | Tipado con `try_to_*` (los inválidos pasan a `NULL`) y cálculo de horas UTC. No cambia la forma de bronze. |
+| `silver_accidents` | un accidente | Deduplica por `id` (macro `deduplicate`; gana `origin_1`), tipa con `try_to_*` (los inválidos pasan a `NULL`), calcula horas UTC y las claves de las entidades. |
 | `accident` | un accidente | Tabla central 3FN con FK a `source`, `location` y `weather_observation`. |
 | `source` | una fuente | Fuentes distintas (`source_name`). |
 | `location` | una dirección | Calle + ciudad + condado + estado + zip. |
@@ -150,7 +156,7 @@ dim_source ── fact_accidents ── dim_date (rol fin)
 
 ### Claves
 
-Todas las claves sustitutas son hashes MD5 deterministas generados con `dbt_utils.generate_surrogate_key`, salvo `date_key`, que es el entero `YYYYMMDD`.
+Todas las claves sustitutas son hashes MD5 deterministas generados directamente con `dbt_utils.generate_surrogate_key` (sin macros propias), salvo `date_key`, que es el entero `YYYYMMDD`.
 
 | Clave | Se calcula a partir de |
 |---|---|
@@ -167,7 +173,7 @@ La documentación completa columna a columna está en los `.yml` de cada carpeta
 
 Se ejecutan con `python scripts/dbt.py test` (o `build`, que ejecuta modelos y tests en orden de dependencia).
 
-Resultado actual en DEV (muestra del 10 %): **86 tests, 76 pasan, 10 avisan (`warn`), 0 fallan.**
+Resultado actual en DEV (muestra del 10 %): **91 tests, 81 pasan, 10 avisan (`warn`), 0 fallan.**
 
 Todos los tests genéricos usan la sintaxis con `arguments:` de dbt ≥ 1.10.
 
@@ -175,9 +181,10 @@ Todos los tests genéricos usan la sintaxis con `arguments:` de dbt ≥ 1.10.
 
 | Modelo | Columna | Tests |
 |---|---|---|
-| `raw_accidents` (fuente) | `id` | `unique`, `not_null` |
-| `stg_accidents` | `accident_id` | `unique`, `not_null` |
-| `stg_accidents` | `severity`, `start_time_local`, `start_lat`, `start_lng` | `not_null` |
+| `raw_accidents_1` / `raw_accidents_2` (fuentes) | `id` | `unique`, `not_null` (único por origen) |
+| `bronze_accidents` | `id`, `origin` | `not_null` (`id` se repite por origen) |
+| `silver_accidents` | `accident_id` | `unique`, `not_null` |
+| `silver_accidents` | `severity`, `start_time_local`, `start_lat`, `start_lng` | `not_null` |
 | `accident` | `accident_id` | `unique`, `not_null` |
 | `accident` | `source_id`, `location_id`, `severity`, `start_time_local`, `start_lat`, `start_lng` | `not_null` |
 | `source` / `location` / `weather_observation` | `source_id` / `location_id` / `weather_id` | `unique`, `not_null` |
@@ -200,13 +207,13 @@ Todos los tests genéricos usan la sintaxis con `arguments:` de dbt ≥ 1.10.
 
 ### 3. Valores admitidos (`accepted_values`)
 
-Se aplican en `stg_accidents` y, para `severity` y `timezone`, también en `accident`. Las columnas que admiten `NULL` se comprueban solo cuando tienen valor (`where ... is not null`).
+Se aplican en `silver_accidents` y, para `severity` y `timezone`, también en `accident`. Las columnas que admiten `NULL` se comprueban solo cuando tienen valor (`where ... is not null`).
 
 | Columna | Valores | Modelos |
 |---|---|---|
-| `severity` | 1, 2, 3, 4 | `stg_accidents`, `accident`, `fact_accidents` |
-| `timezone` | `US/Eastern`, `US/Central`, `US/Mountain`, `US/Pacific` | `stg_accidents`, `accident` |
-| `sunrise_sunset`, `civil_twilight`, `nautical_twilight`, `astronomical_twilight` | `Day`, `Night` | `stg_accidents`, `accident` |
+| `severity` | 1, 2, 3, 4 | `silver_accidents`, `accident`, `fact_accidents` |
+| `timezone` | `US/Eastern`, `US/Central`, `US/Mountain`, `US/Pacific` | `silver_accidents`, `accident` |
+| `sunrise_sunset`, `civil_twilight`, `nautical_twilight`, `astronomical_twilight` | `Day`, `Night` | `silver_accidents`, `accident` |
 
 ### 4. Rangos numéricos (`dbt_utils.accepted_range`)
 
@@ -214,7 +221,7 @@ Los límites son rangos físicos plausibles. Todos tienen severidad `warn`: un v
 
 | Columna | Rango | Modelos |
 |---|---|---|
-| `temperature_f`, `wind_chill_f` | −100 a 140 | `stg_accidents`, `weather_observation`, `fact_accidents` |
+| `temperature_f`, `wind_chill_f` | −100 a 140 | `silver_accidents`, `weather_observation`, `fact_accidents` |
 | `humidity_pct` | 0 a 100 | ídem |
 | `pressure_in` | 0 a 40 | ídem |
 | `visibility_mi`, `wind_speed_mph`, `precipitation_in` | ≥ 0 | ídem |
@@ -241,7 +248,7 @@ Los límites son rangos físicos plausibles. Todos tienen severidad `warn`: un v
 Los 10 avisos actuales son reales, no errores del pipeline:
 
 - `assert_possible_duplicates`: devuelve 100 filas (el test tiene `limit 100`).
-- Rangos de `temperature_f` (4 valores), `wind_chill_f` (2) y `pressure_in` (2): lecturas de sensor fuera del rango plausible. Se repiten en staging, `weather_observation` y la fact porque el dato se propaga.
+- Rangos de `temperature_f` (4 valores), `wind_chill_f` (2) y `pressure_in` (2): lecturas de sensor fuera del rango plausible. Se repiten en `silver_accidents`, `weather_observation` y la fact porque el dato se propaga.
 
 ### Lagunas conocidas (pendientes)
 
@@ -252,15 +259,16 @@ Los 10 avisos actuales son reales, no errores del pipeline:
 
 ## Decisiones de diseño
 
-- **Medallón en tres capas.** Bronze conserva el dato crudo para poder reprocesar sin volver a cargar; silver limpia y normaliza; gold sirve a análisis.
-- **Bronze todo `VARCHAR`, tipado en staging con `try_to_*`.** Un dato mal formado se convierte en `NULL` en lugar de romper la carga.
+- **Medallón en tres capas, una base de datos por capa y entorno.** Bronze conserva el dato crudo para poder reprocesar sin volver a cargar; silver deduplica, tipa y normaliza; gold sirve a análisis. Separar por base de datos permite dar permisos distintos por capa y entorno.
+- **Dos orígenes y deduplicación en silver.** Bronze no corrige nada (`UNION ALL`); la macro `deduplicate` se aplica al pasar a silver.
+- **Bronze todo `VARCHAR`, tipado en silver con `try_to_*`.** Un dato mal formado se convierte en `NULL` en lugar de romper la carga.
 - **UTC calculado.** El CSV solo trae hora local; se convierte a UTC con `timezone`. Sin zona horaria (~7,8 mil filas) queda `NULL`.
 - **`location` es una dirección, no un punto.** Dos sitios distintos con la misma dirección se funden. `dim_location` es aún más gruesa (sin calle).
 - **Sin observación fantasma.** Un accidente sin ningún dato del tiempo tiene `weather_id` NULL, en vez de apuntar a una fila vacía compartida por ~22 mil accidentes.
 - **Indicadores de vía en `accident` (v1).** Los 13 booleanos se quedan en la tabla central: normalizarlos como N:N generaría ~100 M de filas. `timezone` (4 valores) también se queda.
 - **Meteorología en el hecho.** Las medidas del tiempo van en `fact_accidents`, no en una dimensión.
 - **`dim_date` con dos roles.** `fact_accidents` referencia la misma dimensión por `start_date_key` y `end_date_key`.
-- **Materialización configurable.** `DBT_MAT_*` permite pasar capas de `table` a `view` sin tocar código.
+- **Materialización configurable.** `DBT_MAT_*` permite pasar capas de `table` a `view` sin tocar código (bronze es vista por defecto).
 
 ## Documentación generada con dbt
 

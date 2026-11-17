@@ -26,17 +26,17 @@ Proyecto de mentorización · Incorporación a Civica Software
 ## Arquitectura medallón
 
 ```
-CSV ──load_bronze.py──▶ BRONZE ──────▶ SILVER ──────────────▶ GOLD
-                        dato crudo     tipado + 3FN           estrella
-                        todo VARCHAR   staging, accident,     fact_accidents
-                                       source, location,      dim_date, dim_source,
-                                       weather_observation    dim_location
+2 CSV ──load_bronze.py──▶ BRONZE ─────────▶ SILVER ─────────────▶ GOLD
+(origen 1 y 2)            raw_1 UNION ALL    deduplica, tipa,      estrella
+                          raw_2 (VARCHAR)    3FN: accident,        fact_accidents
+                                             source, location,     dim_date, dim_source,
+                                             weather_observation   dim_location
 ```
 
 | Capa | Para qué sirve |
 |---|---|
-| **Bronze** | Guarda el dato tal cual llega; se puede reprocesar sin recargar |
-| **Silver** | Limpia, tipa y normaliza |
+| **Bronze** | Guarda el dato tal cual llega (dos orígenes unidos con `UNION ALL`, duplicados incluidos); se puede reprocesar sin recargar |
+| **Silver** | Deduplica (macro `deduplicate`), tipa y normaliza |
 | **Gold** | Modelo dimensional para análisis |
 
 ---
@@ -46,7 +46,7 @@ CSV ──load_bronze.py──▶ BRONZE ──────▶ SILVER ───�
 | | DEV | PRO |
 |---|---|---|
 | Datos | Muestra determinista del **10 %** (773 mil filas) | Dataset **completo** (7,7 M) |
-| Esquemas | `DEV_BRONZE / SILVER / GOLD` | `PRO_BRONZE / SILVER / GOLD` |
+| Bases de datos (esquema `TRAFFIC_ACCIDENTS`) | `DEV_BRONZE_DB / SILVER_DB / GOLD_DB` | `PRO_BRONZE_DB / SILVER_DB / GOLD_DB` |
 | Estado | Construido y testeado | Bronze cargado; **sin materializar aún** |
 
 - Un solo cambio de variable (`APP_ENV`) cambia de entorno.
@@ -66,7 +66,7 @@ CSV ──load_bronze.py──▶ BRONZE ──────▶ SILVER ───�
 
 ## Silver: de dato crudo a 3FN
 
-**Staging** (`stg_accidents`): tipado con `try_to_*` → un dato malo pasa a `NULL` en vez de romper la carga. Calcula la hora **UTC** a partir de la zona horaria.
+**Silver** (`silver_accidents`): deduplica el `UNION ALL` de bronze, tipa con `try_to_*` → un dato malo pasa a `NULL` en vez de romper la carga. Calcula la hora **UTC** a partir de la zona horaria.
 
 **Intermediate** (tabla central + 3 entidades):
 
@@ -119,7 +119,7 @@ Claves sustitutas deterministas con `dbt_utils.generate_surrogate_key`.
 | **Claves sustitutas con hash** (`generate_surrogate_key`) | Deterministas: la misma entrada da siempre la misma clave, sin secuencias que mantener |
 | **Hora UTC calculada** | El CSV solo trae hora local; se convierte con la zona horaria. Sin zona (~7,8 mil filas) queda NULL en vez de inventarla |
 | **`dim_date` con dos roles** | Inicio y fin del accidente apuntan a la misma dimensión de fecha |
-| **Bronze todo `VARCHAR`, tipado en staging con `try_to_*`** | Un dato mal formado pasa a NULL en vez de romper la carga, y bronze conserva el original |
+| **Bronze todo `VARCHAR`, tipado en silver con `try_to_*`** | Un dato mal formado pasa a NULL en vez de romper la carga, y bronze conserva el original |
 | **Duplicados: marcar, no borrar** | Mismo instante, coordenadas y descripción, pero distinto ID y a veces distinta gravedad u hora de fin: no es seguro que sean copias |
 
 ---
@@ -128,9 +128,9 @@ Claves sustitutas deterministas con `dbt_utils.generate_surrogate_key`.
 
 | Capa | Materialización | Motivo |
 |---|---|---|
-| **Staging** | **Tabla** | Alimenta 4 modelos (`accident`, `location`, `source`, `weather_observation`). Como vista, el tipado de 7,7 M de filas se repetiría 4 veces por build |
-| **Intermediate** | **Tabla** | Los marts hacen JOIN sobre ellas; evita recalcular los `DISTINCT` y los hashes |
-| **Marts (gold)** | **Tabla** | Es lo que consultan los usuarios: debe responder rápido y no depender de cálculo en cada consulta |
+| **Bronze** | **Vista** | Solo es el `UNION ALL` de los dos orígenes: no merece duplicar el almacenamiento |
+| **Silver** | **Tabla** | `silver_accidents` (dedup + tipado) alimenta 4 modelos y los gold hacen JOIN sobre ellas; evita repetir el cálculo |
+| **Gold** | **Tabla** | Es lo que consultan los usuarios: debe responder rápido y no depender de cálculo en cada consulta |
 
 - Compromiso: las tablas ocupan almacenamiento y se **reconstruyen enteras** en cada build. Aquí compensa: el dato no cambia y se lee muchas más veces de las que se construye.
 - Está parametrizado (`DBT_MAT_STAGING`, `DBT_MAT_INTERMEDIATE`, `DBT_MAT_MARTS`): cambiar a vista no requiere tocar código.
@@ -162,7 +162,7 @@ Un incremental procesa **solo las filas nuevas** desde el último build. Hoy no 
 - **El ahorro es pequeño:** reconstruir 7,7 M de filas es un coste puntual (no medido todavía en PRO).
 - **Añade riesgo:** estrategia `merge`, clave única, y si cambias el SQL las filas ya cargadas no se recalculan solas (`--full-refresh`).
 
-**Cuándo sí:** cargas periódicas que añaden registros (p. ej. una API cada día). Haría falta `loaded_at` en bronze, carga con `INSERT`/`MERGE` y `stg_accidents` incremental con `merge` por `accident_id`.
+**Cuándo sí:** cargas periódicas que añaden registros (p. ej. una API cada día). Haría falta `loaded_at` en bronze, carga con `INSERT`/`MERGE` y `silver_accidents` incremental con `merge` por `accident_id`.
 
 ---
 

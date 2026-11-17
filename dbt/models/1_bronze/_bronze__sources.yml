@@ -1,0 +1,31 @@
+version: 2
+
+sources:
+  - name: raw
+    description: >
+      Tablas crudas cargadas por `scripts/load_bronze.py` (PUT al stage +
+      COPY INTO). Todas las columnas son `VARCHAR`. Hay **dos orígenes** con el
+      mismo formato; en este proyecto el segundo es una copia del primero, para
+      poder practicar la deduplicación en silver.
+    database: "{{ target.name | upper }}_BRONZE_DB"
+    schema: TRAFFIC_ACCIDENTS
+    tables:
+      - name: raw_accidents_1
+        identifier: RAW_ACCIDENTS_1
+        description: >
+          Origen 1 (`{ENTORNO}_CSV_1`). DEV: muestra determinista del 10 %;
+          PRO: archivo completo (~7,7 M de filas). Nombres de columna
+          normalizados (`Distance(mi)` -> `DISTANCE_MI`).
+        columns:
+          - name: id
+            description: 'Identificador del accidente (`ID` del CSV). Único dentro de este origen.'
+            data_tests: [unique, not_null]
+      - name: raw_accidents_2
+        identifier: RAW_ACCIDENTS_2
+        description: >
+          Origen 2 (`{ENTORNO}_CSV_2`). Misma estructura que el origen 1; si
+          no se indica archivo, se carga el mismo CSV (duplicado a propósito).
+        columns:
+          - name: id
+            description: 'Identificador del accidente (`ID` del CSV). Único dentro de este origen.'
+            data_tests: [unique, not_null]

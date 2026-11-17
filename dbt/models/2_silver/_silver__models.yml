@@ -1,20 +1,29 @@
 version: 2
 
 models:
-  - name: stg_accidents
+  - name: silver_accidents
     description: >
-      Limpieza y tipado de `bronze.raw_accidents` (todo `VARCHAR`) sin cambiar su
-      forma: **una fila por accidente**. Usa `try_to_*`, así que un valor
-      inválido se convierte en `NULL` en vez de romper la carga. Añade las horas
-      en UTC (el CSV solo trae hora local). No aplica reglas de negocio ni
-      deduplica. Es el primer punto de control de calidad: valida unicidad,
-      campos obligatorios, valores admitidos y rangos físicos.
+      Silver plano. **Una fila por accidente.** Toma `bronze_accidents`,
+      **deduplica** con la macro `deduplicate` (por `id`; si un accidente está
+      en los dos orígenes sobrevive `origin_1`), **tipa** con `try_to_*` (un
+      valor inválido pasa a `NULL` en vez de romper la carga) y calcula las
+      horas UTC y las claves de `source`, `location` y `weather_observation`.
+      Es el primer punto de control de calidad: valida unicidad, campos
+      obligatorios, valores admitidos y rangos físicos. Las tablas
+      normalizadas (`accident`, `source`, `location`, `weather_observation`)
+      salen de aquí.
     columns:
       - name: accident_id
         description: '{{ doc("accident_id") }}'
         data_tests:
           - unique
           - not_null
+      - name: source_id
+        description: 'Hash MD5 de `source_name` (`dbt_utils.generate_surrogate_key`).'
+      - name: location_id
+        description: 'Hash MD5 de calle + ciudad + condado + estado + zip.'
+      - name: weather_id
+        description: 'Hash MD5 de los 11 campos meteorológicos. NULL si todos son nulos.'
       - name: source_name
         description: '{{ doc("source_name") }}'
       - name: severity

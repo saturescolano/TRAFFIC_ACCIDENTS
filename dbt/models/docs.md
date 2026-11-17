@@ -1,6 +1,6 @@
 {# Doc blocks reutilizables. Se referencian desde los .yml con
    description: '{{ doc("nombre") }}'. Las columnas que viajan por varias capas
-   (staging -> intermediate -> marts) se documentan una sola vez aquí. #}
+   (bronze -> silver -> gold) se documentan una sola vez aquí. #}
 
 {% docs __overview__ %}
 
@@ -10,14 +10,15 @@ Pipeline ELT sobre el dataset público **US Accidents (marzo 2023)**:
 ~7,7 millones de accidentes de tráfico en EE. UU. (2016-2023), cargados en
 Snowflake y modelados con dbt en arquitectura medallón.
 
-| Capa | Esquema (`{APP_ENV}_…`) | Carpeta | Contenido |
+| Capa | Base de datos (esquema `TRAFFIC_ACCIDENTS`) | Carpeta | Contenido |
 |---|---|---|---|
-| Bronze | `DEV_BRONZE` / `PRO_BRONZE` | `sources.yml` | CSV crudo, todo `VARCHAR` (`raw_accidents`). Lo carga `scripts/load_bronze.py`. |
-| Silver | `DEV_SILVER` / `PRO_SILVER` | `staging/`, `intermediate/` | Dato tipado y normalizado a 3FN. |
-| Gold | `DEV_GOLD` / `PRO_GOLD` | `marts/` | Modelo dimensional (estrella) para análisis. |
+| Bronze | `DEV_BRONZE_DB` / `PRO_BRONZE_DB` | `1_bronze/` | Dos orígenes crudos (`raw_accidents_1/2`, todo `VARCHAR`) unidos con `UNION ALL` en `bronze_accidents`. Los carga `scripts/load_bronze.py`. |
+| Silver | `DEV_SILVER_DB` / `PRO_SILVER_DB` | `2_silver/` | Deduplicado (macro `deduplicate`), tipado y normalizado a 3FN. |
+| Gold | `DEV_GOLD_DB` / `PRO_GOLD_DB` | `3_gold/` | Modelo dimensional (estrella) para análisis. |
 
 **Entornos.** `APP_ENV=DEV` trabaja con una muestra determinista del 10 % del
-CSV; `APP_ENV=PRO` con el archivo completo.
+CSV; `APP_ENV=PRO` con el archivo completo. Cada entorno tiene sus propias
+bases de datos y variables `DEV_*` / `PRO_*`.
 
 **Calidad de datos.** Los tests están declarados en los `.yml` de cada carpeta
 (unicidad, no nulos, integridad referencial, valores admitidos, rangos) y en

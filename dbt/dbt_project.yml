@@ -7,17 +7,18 @@ model-paths: ["models"]
 macro-paths: ["macros"]
 test-paths: ["tests"]
 
-# Esquema final = {APP_ENV}_{capa}  (ver macros/generate_schema_name.sql)
+# Base de datos final = {ENTORNO}_{CAPA}_DB (ver macros/generate_database_name.sql),
+# esquema siempre TRAFFIC_ACCIDENTS. Ej.: DEV_SILVER_DB.TRAFFIC_ACCIDENTS.ACCIDENT
 # Materialización por capa, cambiable con variables de entorno sin tocar código:
-#   DBT_MAT_STAGING, DBT_MAT_INTERMEDIATE, DBT_MAT_MARTS  (table | view)
+#   DBT_MAT_BRONZE, DBT_MAT_SILVER, DBT_MAT_GOLD  (table | view)
 models:
   traffic_accidents:
-    staging:
-      +schema: silver
-      +materialized: "{{ env_var('DBT_MAT_STAGING', 'table') }}"
-    intermediate:
-      +schema: silver
-      +materialized: "{{ env_var('DBT_MAT_INTERMEDIATE', 'table') }}"
-    marts:
-      +schema: gold
-      +materialized: "{{ env_var('DBT_MAT_MARTS', 'table') }}"
+    "1_bronze":
+      +database: bronze
+      +materialized: "{{ env_var('DBT_MAT_BRONZE', 'view') }}"
+    "2_silver":
+      +database: silver
+      +materialized: "{{ env_var('DBT_MAT_SILVER', 'table') }}"
+    "3_gold":
+      +database: gold
+      +materialized: "{{ env_var('DBT_MAT_GOLD', 'table') }}"

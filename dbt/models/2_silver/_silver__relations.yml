@@ -21,7 +21,7 @@ models:
       - name: location_id
         description: >
           FK a `location`. Hash de calle + ciudad + condado + estado + zip
-          (macro `location_key`).
+          .
         data_tests:
           - not_null
           - relationships:
@@ -29,7 +29,7 @@ models:
       - name: weather_id
         description: >
           FK a `weather_observation`. Hash de los 11 campos meteorológicos
-          (macro `weather_key`). NULL si el accidente no tiene ningún dato
+          . NULL si el accidente no tiene ningún dato
           meteorológico.
         data_tests:
           - relationships:
@@ -145,7 +145,7 @@ models:
       nulos se agrupan por los campos presentes.
     columns:
       - name: location_id
-        description: 'Clave sustituta (hash MD5) de calle + ciudad + condado + estado + zip (macro `location_key`).'
+        description: 'Clave sustituta (hash MD5) de calle + ciudad + condado + estado + zip .'
         data_tests: [unique, not_null]
       - name: street
         description: '{{ doc("street") }}'
@@ -166,7 +166,7 @@ models:
       fila «fantasma» compartida por ~22 mil accidentes.
     columns:
       - name: weather_id
-        description: 'Clave sustituta (hash MD5) de los 11 campos meteorológicos (macro `weather_key`).'
+        description: 'Clave sustituta (hash MD5) de los 11 campos meteorológicos .'
         data_tests: [unique, not_null]
       - name: weather_timestamp
         description: '{{ doc("weather_timestamp") }}'

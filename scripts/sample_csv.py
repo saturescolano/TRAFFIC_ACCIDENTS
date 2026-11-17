@@ -12,8 +12,8 @@ from pandas.util import hash_pandas_object
 
 load_dotenv()
 
-SRC = os.environ["CSV_ORIGINAL"]
-DST = os.environ["CSV_SAMPLE"]
+SRC = os.environ["PRO_CSV_1"]
+DST = os.environ["DEV_CSV_1"]
 PERCENT = int(os.getenv("SAMPLE_PERCENT", "10"))
 CHUNK = 500_000
 
