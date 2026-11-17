@@ -137,6 +137,24 @@ Alternativamente, `scripts/dbt.py` es un envoltorio que carga el `.env` y añade
 | `location` | una dirección | Calle + ciudad + condado + estado + zip. |
 | `weather_observation` | una combinación de datos meteorológicos | Los 11 campos del tiempo. Sin datos no hay observación (`weather_id` NULL). |
 
+### Linaje: por qué `silver_accidents` va primero
+
+```
+raw_accidents_1 ─┐
+                 ├─▶ bronze_accidents ─▶ silver_accidents ─┬─▶ accident ─────┐
+raw_accidents_2 ─┘     (UNION ALL)       (dedup + tipado   ├─▶ source ───────┤
+                                          + claves)        ├─▶ location ─────┼─▶ gold
+                                                           └─▶ weather_obs. ─┘
+```
+
+`silver_accidents` es el paso previo dentro de silver (el papel que antes hacía `staging`): tabla plana, una fila por accidente, donde se deduplica, se tipa, se calcula la hora UTC y se generan las claves **una sola vez**. `accident`, `source`, `location` y `weather_observation` (3FN) no limpian nada: solo seleccionan sus columnas (`select distinct` en las tres entidades).
+
+- **Ventajas:** el trabajo pesado sobre 7,7 M de filas se hace una vez, no cuatro; las claves se definen en un único sitio y no pueden diferir entre tablas; las FK de `accident` siempre apuntan a filas que existen.
+- **Inconveniente:** las cuatro tablas dependen de una quinta que no es una entidad real (cuello de botella en el grafo de linaje).
+- **Alternativa descartada:** que cada tabla lea de bronze y repita dedup, tipado y claves: lógica copiada cuatro veces y mucho más cálculo.
+
+Para verlo: `python scripts/dbt.py docs generate` y `python scripts/dbt.py docs serve`, y abrir un modelo → botón *Lineage* (en http://localhost:8080).
+
 ### Gold (estrella)
 
 ```

@@ -106,6 +106,30 @@ qualify row_number() over (partition by id order by origin) = 1
 
 ---
 
+## Linaje: por qué `silver_accidents` va primero
+
+```
+raw_accidents_1 ─┐
+                 ├─▶ bronze_accidents ─▶ silver_accidents ─┬─▶ accident ──────┐
+raw_accidents_2 ─┘     (UNION ALL)       (dedup + tipado   ├─▶ source ────────┤
+                                          + claves)        ├─▶ location ──────┼─▶ gold
+                                                           └─▶ weather_obs. ──┘
+```
+
+**`silver_accidents`** es el paso previo dentro de silver (el papel que antes hacía `staging`): una tabla plana, una fila por accidente, donde se hace **una sola vez** el trabajo pesado: deduplicar, tipar, calcular la hora UTC y generar las claves.
+
+**`accident`, `source`, `location` y `weather_observation`** son el modelo 3FN: no limpian nada, solo seleccionan sus columnas (`select distinct` en las tres entidades).
+
+| Ventaja | Inconveniente |
+|---|---|
+| Deduplicar y tipar 7,7 M de filas **una vez**, no cuatro | Las cuatro tablas dependen de una quinta que no es una entidad real: cuello de botella en el grafo |
+| Las claves se definen en **un único sitio** (no pueden diferir entre tablas) | |
+| Las FK de `accident` siempre apuntan a filas que existen | |
+
+**Alternativa descartada:** que cada tabla lea de bronze y repita dedup, tipado y claves → lógica copiada 4 veces y mucho más cálculo.
+
+---
+
 ## Gold: modelo en estrella
 
 ```
